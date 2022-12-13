@@ -1,0 +1,16 @@
+[package]
+name = "context"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+#logging abstraction
+log = "0.*"
+
+[dev-dependencies]
+#error handling
+anyhow = "1.*"
+#logging implementation
+env_logger = "0.*"
+#window creation
+winit = { version = "0.*", default-features = false, features =["x11"] }  

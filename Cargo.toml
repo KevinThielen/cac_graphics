@@ -1,0 +1,7 @@
+[workspace]
+members = [] 
+
+# To avoid unbearable long loading times for assets,
+# it is required to at least have a minor opt-level
+[profile.dev]
+opt-level = 1

@@ -110,7 +110,11 @@ impl context::opengl::GLContext for GLContext {
     }
 }
 
-fn main() {
+fn main() -> anyhow::Result<()> {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace"))
+        .format_timestamp(None)
+        .init();
+
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new().build(&event_loop).unwrap();
 
@@ -129,7 +133,7 @@ fn main() {
     gl_context.make_current();
     let gl_context = GLContext(gl_context);
 
-    let mut context = opengl::Context::new(gl_context);
+    let mut context = opengl::Context::new(gl_context)?;
 
     unsafe {
         gl::ClearColor(1.0, 0.0, 0.0, 1.0);

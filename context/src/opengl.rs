@@ -1,4 +1,4 @@
-use crate::{error::Error, gl43_core as gl};
+use crate::{error::Error, gl43_core as gl, render_target};
 
 pub trait GLContext {
     fn swap_buffers(&mut self);
@@ -45,9 +45,23 @@ impl<C: GLContext> Context<C> {
     pub fn raw_context(&mut self) -> &mut C {
         &mut self.gl_context
     }
+}
 
-    pub fn update(&mut self) {
+impl<C: GLContext> crate::Context for Context<C> {
+    fn update(&mut self) {
         self.gl_context.swap_buffers();
+    }
+}
+
+impl<C: GLContext> render_target::Context for Context<C> {
+    fn clear(&mut self, target: &render_target::RenderTarget) {
+        if let Some(color) = target.clear_color {
+            let (r, g, b, a) = color.as_rgba();
+            unsafe {
+                gl::ClearColor(r, g, b, a);
+                gl::Clear(gl::COLOR_BUFFER_BIT);
+            }
+        }
     }
 }
 

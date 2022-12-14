@@ -1,5 +1,5 @@
-use context::{gl43_core as gl, opengl};
-
+use context::{gl43_core as gl, opengl, render_target::RenderTarget, Context as _};
+use core::Color32;
 use raw_gl_context::GlContext;
 use std::ffi::CString;
 use winit::{
@@ -210,11 +210,9 @@ fn glfw_main() -> anyhow::Result<()> {
     window.set_key_polling(true);
     window.make_current();
 
-    let mut context = opengl::Context::new(GLFWContext(window))?;
+    let mut ctx = opengl::Context::new(GLFWContext(window))?;
 
-    unsafe {
-        gl::ClearColor(1.0, 0.0, 0.0, 1.0);
-    }
+    let screen = RenderTarget::with_clear_color(Color32::DARK_JUNGLE_GREEN);
 
     #[rustfmt::skip]  //skip the default formatting to make it cleaner
     const QUAD_VERTICES: [f32; 3 * 4] = [
@@ -234,17 +232,18 @@ fn glfw_main() -> anyhow::Result<()> {
         gl::BindVertexArray(vao);
     }
 
-    while !context.raw_context().0.should_close() {
+    while !ctx.raw_context().0.should_close() {
+        screen.clear(&mut ctx);
+
         unsafe {
-            gl::Clear(gl::COLOR_BUFFER_BIT);
             gl::DrawArrays(gl::TRIANGLE_STRIP, 0, 4);
         }
-        context.update();
+        ctx.update();
 
         glfw.poll_events();
         for (_, event) in glfw::flush_messages(&events) {
             if let glfw::WindowEvent::Key(Key::Escape, _, Action::Press, _) = event {
-                context.raw_context().0.set_should_close(true)
+                ctx.raw_context().0.set_should_close(true)
             }
         }
     }

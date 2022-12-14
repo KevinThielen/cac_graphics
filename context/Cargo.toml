@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 #logging abstraction
 log = "0.*"
+core = { path = "../core" }
 
 [dev-dependencies]
 #error handling

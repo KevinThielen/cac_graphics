@@ -1,4 +1,4 @@
-use context::gl43_core as gl;
+use context::{gl43_core as gl, opengl};
 
 use raw_gl_context::GlContext;
 use std::ffi::CString;
@@ -98,6 +98,18 @@ fn create_vbo<T>(data: &[T]) -> gl::types::GLuint {
     buffer
 }
 
+struct GLContext(GlContext);
+
+impl context::opengl::GLContext for GLContext {
+    fn swap_buffers(&mut self) {
+        self.0.swap_buffers();
+    }
+
+    fn get_proc_address(&mut self, name: &'static str) -> *const std::ffi::c_void {
+        self.0.get_proc_address(name)
+    }
+}
+
 fn main() {
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new().build(&event_loop).unwrap();
@@ -115,8 +127,9 @@ fn main() {
     .unwrap();
 
     gl_context.make_current();
+    let gl_context = GLContext(gl_context);
 
-    gl::load_with(|symbol| gl_context.get_proc_address(symbol));
+    let mut context = opengl::Context::new(gl_context);
 
     unsafe {
         gl::ClearColor(1.0, 0.0, 0.0, 1.0);
@@ -148,12 +161,14 @@ fn main() {
                 event: WindowEvent::CloseRequested,
                 window_id,
             } if window_id == window.id() => *control_flow = ControlFlow::Exit,
-            Event::MainEventsCleared => unsafe {
-                gl::Clear(gl::COLOR_BUFFER_BIT);
-                gl::DrawArrays(gl::TRIANGLE_STRIP, 0, 4);
+            Event::MainEventsCleared => {
+                unsafe {
+                    gl::Clear(gl::COLOR_BUFFER_BIT);
+                    gl::DrawArrays(gl::TRIANGLE_STRIP, 0, 4);
+                };
 
-                gl_context.swap_buffers();
-            },
+                context.update();
+            }
             _ => {}
         }
     });

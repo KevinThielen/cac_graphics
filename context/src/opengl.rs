@@ -41,7 +41,10 @@ impl<C: GLContext> Context<C> {
             gl_context: context,
         })
     }
-    //..
+
+    pub fn raw_context(&mut self) -> &mut C {
+        &mut self.gl_context
+    }
 
     pub fn update(&mut self) {
         self.gl_context.swap_buffers();

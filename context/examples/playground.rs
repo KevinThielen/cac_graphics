@@ -110,7 +110,7 @@ impl context::opengl::GLContext for GLContext {
     }
 }
 
-fn main() -> anyhow::Result<()> {
+fn winit_main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace"))
         .format_timestamp(None)
         .init();
@@ -176,4 +176,82 @@ fn main() -> anyhow::Result<()> {
             _ => {}
         }
     });
+}
+
+use glfw::{Action, Context, Key};
+
+struct GLFWContext(glfw::Window);
+impl opengl::GLContext for GLFWContext {
+    fn swap_buffers(&mut self) {
+        self.0.swap_buffers()
+    }
+
+    fn get_proc_address(&mut self, name: &'static str) -> *const std::ffi::c_void {
+        self.0.get_proc_address(name)
+    }
+}
+
+fn glfw_main() -> anyhow::Result<()> {
+    let mut glfw = glfw::init(glfw::FAIL_ON_ERRORS).unwrap();
+
+    // Create a windowed mode window and its OpenGL context
+    // window hints have to be set before the window is created
+    glfw.window_hint(glfw::WindowHint::ContextVersion(4, 3));
+    glfw.window_hint(glfw::WindowHint::OpenGlProfile(
+        glfw::OpenGlProfileHint::Core,
+    ));
+    glfw.window_hint(glfw::WindowHint::OpenGlDebugContext(true));
+    glfw.window_hint(glfw::WindowHint::Resizable(false));
+
+    let (mut window, events) = glfw
+        .create_window(300, 300, "Hello this is GLFW", glfw::WindowMode::Windowed)
+        .expect("Failed to create GLFW window.");
+
+    window.set_key_polling(true);
+    window.make_current();
+
+    let mut context = opengl::Context::new(GLFWContext(window))?;
+
+    unsafe {
+        gl::ClearColor(1.0, 0.0, 0.0, 1.0);
+    }
+
+    #[rustfmt::skip]  //skip the default formatting to make it cleaner
+    const QUAD_VERTICES: [f32; 3 * 4] = [
+        //     X,    Y,   Z    Position
+        -0.9, -0.9, 0.0, // bottom left
+        -0.9,  0.9, 0.0, // top left
+        0.9,  0.9, 0.0, // top right
+        0.9, -0.9, 0.0, // bottom right
+    ];
+
+    let vbo = create_vbo(&QUAD_VERTICES);
+    let vao = create_vao(vbo);
+    let shader_program = create_shader();
+
+    unsafe {
+        gl::UseProgram(shader_program);
+        gl::BindVertexArray(vao);
+    }
+
+    while !context.raw_context().0.should_close() {
+        unsafe {
+            gl::Clear(gl::COLOR_BUFFER_BIT);
+            gl::DrawArrays(gl::TRIANGLE_STRIP, 0, 4);
+        }
+        context.update();
+
+        glfw.poll_events();
+        for (_, event) in glfw::flush_messages(&events) {
+            if let glfw::WindowEvent::Key(Key::Escape, _, Action::Press, _) = event {
+                context.raw_context().0.set_should_close(true)
+            }
+        }
+    }
+    Ok(())
+}
+
+fn main() -> anyhow::Result<()> {
+    glfw_main()
+    //winit_main()
 }

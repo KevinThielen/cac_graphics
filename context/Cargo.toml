@@ -16,3 +16,5 @@ env_logger = "0.*"
 winit = { version = "0.*", default-features = false, features =["x11"] }  
 #OpenGL Context Creations
 raw-gl-context = "0.*"
+#alternative window and context creation
+glfw = { version = "0.*", default-features = false }

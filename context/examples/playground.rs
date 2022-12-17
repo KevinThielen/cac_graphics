@@ -1,4 +1,10 @@
-use context::{gl43_core as gl, opengl, render_target::RenderTarget, Context as _};
+use context::{
+    buffer::Buffer,
+    opengl::{self, gl},
+    render_target::RenderTarget,
+    Context as _,
+};
+
 use core::Color32;
 use raw_gl_context::GlContext;
 use std::ffi::CString;
@@ -77,27 +83,6 @@ fn create_vao(vbo: gl::types::GLuint) -> gl::types::GLuint {
     vao
 }
 
-fn create_vbo<T>(data: &[T]) -> gl::types::GLuint {
-    let mut buffer = 0;
-
-    //the size of our blob is the size of a single element(T) * the counts of T in our slice
-    let data_size = std::mem::size_of::<T>() * data.len();
-
-    unsafe {
-        gl::GenBuffers(1, &mut buffer);
-        gl::BindBuffer(gl::ARRAY_BUFFER, buffer);
-
-        gl::BufferData(
-            gl::ARRAY_BUFFER,
-            data_size.try_into().unwrap(), //we need to cast usize to "isize", panicking is fine in our playground
-            data.as_ptr().cast(),          //the pointer to our first element in our slice
-            gl::STATIC_DRAW,
-        )
-    }
-
-    buffer
-}
-
 struct GLContext(GlContext);
 
 impl context::opengl::GLContext for GLContext {
@@ -148,8 +133,7 @@ fn winit_main() -> anyhow::Result<()> {
         0.9, -0.9, 0.0, // bottom right
     ];
 
-    let vbo = create_vbo(&QUAD_VERTICES);
-    let vao = create_vao(vbo);
+    let vao = create_vao(0);
     let shader_program = create_shader();
 
     unsafe {
@@ -223,8 +207,9 @@ fn glfw_main() -> anyhow::Result<()> {
         0.9, -0.9, 0.0, // bottom right
     ];
 
-    let vbo = create_vbo(&QUAD_VERTICES);
-    let vao = create_vao(vbo);
+    let vertex_buffer = Buffer::with_vertex_data(&mut ctx, &QUAD_VERTICES);
+
+    let vao = create_vao(1);
     let shader_program = create_shader();
 
     unsafe {

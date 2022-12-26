@@ -4,6 +4,7 @@ pub trait Context {
     fn clear(&mut self, target: &RenderTarget);
 }
 
+#[derive(Copy, Clone)]
 pub struct RenderTarget {
     pub clear_color: Option<Color32>,
 }

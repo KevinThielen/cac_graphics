@@ -1,10 +1,14 @@
 mod buffer;
 mod render_rarget;
+mod shader;
+mod vertex_layout;
 
-pub mod gl43_core;
-pub use gl43_core as gl;
+mod gl43_core;
+use gl43_core as gl;
 
 use crate::error::Error;
+
+use self::gl43_core::types::GLint;
 
 pub trait GLContext {
     fn swap_buffers(&mut self);
@@ -13,7 +17,13 @@ pub trait GLContext {
 
 pub struct Context<C: GLContext> {
     gl_context: C,
-    buffers: Vec<buffer::Native>,
+    buffers: Vec<buffer::Buffer>,
+    layouts: Vec<vertex_layout::VertexLayout>,
+    stages: Vec<shader::Shader>,
+    shaders: Vec<shader::Program>,
+
+    bound_vao: Option<crate::vertex_layout::VertexLayout>,
+    bound_shader: Option<crate::shader::Shader>,
 }
 
 impl<C: GLContext> Context<C> {
@@ -47,17 +57,89 @@ impl<C: GLContext> Context<C> {
         Ok(Self {
             gl_context: context,
             buffers: Vec::with_capacity(10),
+            layouts: Vec::with_capacity(10),
+            stages: Vec::with_capacity(10),
+            shaders: Vec::with_capacity(10),
+            bound_vao: None,
+            bound_shader: None,
         })
     }
 
     pub fn raw_context(&mut self) -> &mut C {
         &mut self.gl_context
     }
+
+    fn bind_vao(
+        &mut self,
+        handle: Option<crate::vertex_layout::VertexLayout>,
+    ) -> Result<(), Error> {
+        if handle != self.bound_vao {
+            if let Some(layout) = handle {
+                let vao = self
+                    .layouts
+                    .get(layout.handle)
+                    .ok_or(Error::ResourceNotFound)?;
+
+                unsafe {
+                    gl::BindVertexArray(vao.id);
+                }
+
+                self.bound_vao = handle;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn bind_shader(&mut self, handle: Option<crate::shader::Shader>) -> Result<(), Error> {
+        if handle != self.bound_shader {
+            if let Some(shader) = handle {
+                let shader = self
+                    .shaders
+                    .get(shader.handle)
+                    .ok_or(Error::ResourceNotFound)?;
+
+                unsafe {
+                    gl::UseProgram(shader.id);
+                }
+
+                self.bound_shader = handle;
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl<C: GLContext> crate::Context for Context<C> {
     fn update(&mut self) {
         self.gl_context.swap_buffers();
+    }
+
+    fn draw(
+        &mut self,
+        _target: &crate::render_target::RenderTarget,
+        primitive: crate::Primitive,
+        shader: crate::shader::Shader,
+        layout: crate::vertex_layout::VertexLayout,
+        start: usize,
+        count: usize,
+    ) -> std::result::Result<(), Error> {
+        self.bind_shader(Some(shader))?;
+        self.bind_vao(Some(layout))?;
+
+        unsafe { gl::DrawArrays(primitive.into(), start as GLint, count as GLint) }
+
+        Ok(())
+    }
+}
+
+impl From<crate::Primitive> for gl::types::GLenum {
+    fn from(value: crate::Primitive) -> Self {
+        match value {
+            crate::Primitive::Triangles => gl::TRIANGLES,
+            crate::Primitive::TriangleStrip => gl::TRIANGLE_STRIP,
+        }
     }
 }
 

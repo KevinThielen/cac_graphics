@@ -1,28 +1,29 @@
 use context::{
     buffer::Buffer,
-    opengl::{self, gl},
+    opengl,
     render_target::RenderTarget,
-    Context as _,
+    shader::{Shader, Stage},
+    vertex_layout::{Stride, VertexLayout},
+    Context as _, Primitive,
 };
 
 use core::Color32;
 use raw_gl_context::GlContext;
-use std::ffi::CString;
+
 use winit::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     window::WindowBuilder,
 };
 
-const VS_SOURCE: &str = r##"
-#version 430
-layout(location = 0) in vec3 pos;
+const VS_SOURCE: &str = r##"layout(location = 0) in vec3 pos;
+layout(location = 1) in vec4 color;
 
 out vec4 fragment_color;
 
 void main()
 {
-    fragment_color = vec4(pos.x, pos.y, pos.x + pos.y, 1.0);
+    fragment_color = color;
     gl_Position = vec4(pos, 1.0);
 }"##;
 
@@ -36,51 +37,53 @@ void main()
     result = fragment_color;
 }"##;
 
-fn create_shader() -> gl::types::GLuint {
-    let program;
-    unsafe {
-        let vs = gl::CreateShader(gl::VERTEX_SHADER);
-        let fs = gl::CreateShader(gl::FRAGMENT_SHADER);
-
-        //convert Rust Str to CString
-        let vert_source = CString::new(VS_SOURCE).unwrap();
-        let frag_source = CString::new(FS_SOURCE).unwrap();
-
-        gl::ShaderSource(vs, 1, [vert_source.as_ptr()].as_ptr(), std::ptr::null());
-        gl::ShaderSource(fs, 1, [frag_source.as_ptr()].as_ptr(), std::ptr::null());
-
-        gl::CompileShader(vs);
-        gl::CompileShader(fs);
-
-        program = gl::CreateProgram();
-        gl::AttachShader(program, vs);
-        gl::AttachShader(program, fs);
-        gl::LinkProgram(program);
-        gl::DetachShader(program, vs);
-        gl::DetachShader(program, fs);
-        gl::UseProgram(program);
-
-        gl::DeleteShader(vs);
-        gl::DeleteShader(fs);
-    }
-
-    program
+#[repr(C)]
+struct Vertex {
+    position: [f32; 3],
+    color: Color32,
 }
-fn create_vao(vbo: gl::types::GLuint) -> gl::types::GLuint {
-    let mut vao = 0;
 
-    unsafe {
-        gl::GenVertexArrays(1, &mut vao);
-        gl::BindVertexArray(vao);
+impl Vertex {
+    const BOTTOM_LEFT: Self = Self::new(-0.9, -0.9, Color32::GAINSBORO);
+    const TOP_LEFT: Self = Self::new(-0.9, 0.9, Color32::PERSIAN_INDIGO);
+    const TOP_RIGHT: Self = Self::new(0.9, 0.9, Color32::UNITY_YELLOW);
+    const BOTTOM_RIGHT: Self = Self::new(0.9, -0.9, Color32::DARK_JUNGLE_GREEN);
 
-        gl::EnableVertexAttribArray(0);
-        gl::VertexAttribFormat(0, 3, gl::FLOAT, gl::FALSE, 0);
-        gl::VertexAttribBinding(0, 0); //attribute 0 uses buffer binding 0
-
-        gl::BindVertexBuffer(0, vbo, 0, std::mem::size_of::<f32>() as i32 * 3);
+    const fn new(x: f32, y: f32, color: Color32) -> Self {
+        Self {
+            position: [x, y, 0.0],
+            color,
+        }
     }
+}
 
-    vao
+unsafe impl context::buffer::FlatData for Vertex {}
+
+const QUAD_VERTICES: [Vertex; 4] = [
+    Vertex::BOTTOM_LEFT,
+    Vertex::TOP_LEFT,
+    Vertex::TOP_RIGHT,
+    Vertex::BOTTOM_RIGHT,
+];
+
+mod attribute {
+    use context::vertex_layout::{AttributeKind, Components, VertexAttribute};
+
+    pub const POSITION: VertexAttribute = VertexAttribute {
+        location: 0,
+        components: Components::Vec3,
+        kind: AttributeKind::F32,
+        normalized: false,
+        local_offset: 0,
+    };
+
+    pub const COLOR: VertexAttribute = VertexAttribute {
+        location: 1,
+        components: Components::Vec4,
+        kind: AttributeKind::F32,
+        normalized: false,
+        local_offset: std::mem::size_of::<f32>() * 3,
+    };
 }
 
 struct GLContext(GlContext);
@@ -118,28 +121,26 @@ fn winit_main() -> anyhow::Result<()> {
     gl_context.make_current();
     let gl_context = GLContext(gl_context);
 
-    let mut context = opengl::Context::new(gl_context)?;
+    let mut ctx = opengl::Context::new(gl_context)?;
 
-    unsafe {
-        gl::ClearColor(1.0, 0.0, 0.0, 1.0);
-    }
+    let screen = RenderTarget::with_clear_color(Color32::DARK_JUNGLE_GREEN);
 
-    #[rustfmt::skip]  //skip the default formatting to make it cleaner
-    const QUAD_VERTICES: [f32; 3 * 4] = [
-        //     X,    Y,   Z    Position
-        -0.9, -0.9, 0.0, // bottom left
-        -0.9,  0.9, 0.0, // top left
-        0.9,  0.9, 0.0, // top right
-        0.9, -0.9, 0.0, // bottom right
-    ];
+    let vertex_buffer = Buffer::with_vertex_data(&mut ctx, &QUAD_VERTICES)?;
 
-    let vao = create_vao(0);
-    let shader_program = create_shader();
+    let layout = VertexLayout::new(&mut ctx);
+    layout.set_attributes(&mut ctx, 0, &[attribute::POSITION]);
 
-    unsafe {
-        gl::UseProgram(shader_program);
-        gl::BindVertexArray(vao);
-    }
+    layout.set_buffer(
+        &mut ctx,
+        0,
+        vertex_buffer,
+        0,
+        Stride::Interleaved(&[attribute::POSITION]),
+    )?;
+
+    let vs = Stage::new_vertex(&mut ctx, &["#version 430\n", VS_SOURCE])?;
+    let fs = Stage::new_fragment(&mut ctx, &[FS_SOURCE])?;
+    let shader = Shader::new(&mut ctx, &[vs, fs])?;
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
@@ -150,12 +151,11 @@ fn winit_main() -> anyhow::Result<()> {
                 window_id,
             } if window_id == window.id() => *control_flow = ControlFlow::Exit,
             Event::MainEventsCleared => {
-                unsafe {
-                    gl::Clear(gl::COLOR_BUFFER_BIT);
-                    gl::DrawArrays(gl::TRIANGLE_STRIP, 0, 4);
-                };
+                screen.clear(&mut ctx);
 
-                context.update();
+                ctx.draw(&screen, Primitive::TriangleStrip, shader, layout, 0, 4)
+                    .unwrap();
+                ctx.update();
             }
             _ => {}
         }
@@ -176,6 +176,10 @@ impl opengl::GLContext for GLFWContext {
 }
 
 fn glfw_main() -> anyhow::Result<()> {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace"))
+        .format_timestamp(None)
+        .init();
+
     let mut glfw = glfw::init(glfw::FAIL_ON_ERRORS).unwrap();
 
     // Create a windowed mode window and its OpenGL context
@@ -198,31 +202,34 @@ fn glfw_main() -> anyhow::Result<()> {
 
     let screen = RenderTarget::with_clear_color(Color32::DARK_JUNGLE_GREEN);
 
-    #[rustfmt::skip]  //skip the default formatting to make it cleaner
-    const QUAD_VERTICES: [f32; 3 * 4] = [
-        //     X,    Y,   Z    Position
-        -0.9, -0.9, 0.0, // bottom left
-        -0.9,  0.9, 0.0, // top left
-        0.9,  0.9, 0.0, // top right
-        0.9, -0.9, 0.0, // bottom right
-    ];
+    let vertex_buffer = Buffer::with_vertex_data(&mut ctx, &QUAD_VERTICES)?;
 
-    let vertex_buffer = Buffer::with_vertex_data(&mut ctx, &QUAD_VERTICES);
+    let layout = VertexLayout::new(&mut ctx);
+    layout.set_attributes(&mut ctx, 0, &[attribute::POSITION, attribute::COLOR]);
 
-    let vao = create_vao(1);
-    let shader_program = create_shader();
+    layout.set_buffer(
+        &mut ctx,
+        0,
+        vertex_buffer,
+        0,
+        Stride::Bytes(std::mem::size_of::<Vertex>()),
+    )?;
 
-    unsafe {
-        gl::UseProgram(shader_program);
-        gl::BindVertexArray(vao);
+    let vs = Stage::new_vertex(&mut ctx, &["#version 430\n", VS_SOURCE])?;
+    let fs = Stage::new_fragment(&mut ctx, &[FS_SOURCE])?;
+    let shader = Shader::new(&mut ctx, &[vs, fs])?;
+
+    use context::vertex_layout::NativeContext;
+    if let (Some(layout), buffers) = layout.get_mut_with_buffers(&mut ctx, [vertex_buffer]) {
+        if let Some(vbo) = buffers[0] {
+            layout.set_attribute_buffer(vbo)?;
+        }
     }
 
     while !ctx.raw_context().0.should_close() {
         screen.clear(&mut ctx);
+        ctx.draw(&screen, Primitive::TriangleStrip, shader, layout, 0, 4)?;
 
-        unsafe {
-            gl::DrawArrays(gl::TRIANGLE_STRIP, 0, 4);
-        }
         ctx.update();
 
         glfw.poll_events();
@@ -232,6 +239,7 @@ fn glfw_main() -> anyhow::Result<()> {
             }
         }
     }
+
     Ok(())
 }
 

@@ -5,15 +5,17 @@ use super::{
 use crate::{buffer, error::Error};
 
 pub struct Buffer {
-    id: gl::types::GLuint,
+    pub(crate) id: gl::types::GLuint,
     kind: GLenum,
     usage: GLenum,
 }
 
+type GLBuffer = Buffer;
+
 struct AccessUsage(buffer::Access, buffer::Usage);
 
-impl buffer::NativeContext for Buffer {
-    fn set_data<T>(&mut self, data: &[T]) -> Result<(), Error> {
+impl buffer::NativeContext for GLBuffer {
+    fn set_data<T: buffer::FlatData>(&mut self, data: &[T]) -> Result<(), Error> {
         unsafe {
             gl::BindBuffer(self.kind, self.id);
             gl::BufferData(
@@ -29,7 +31,7 @@ impl buffer::NativeContext for Buffer {
 }
 
 impl<C: GLContext> buffer::Context for Context<C> {
-    type NativeBuffer = Buffer;
+    type NativeBuffer = GLBuffer;
 
     fn create(
         &mut self,
@@ -55,14 +57,18 @@ impl<C: GLContext> buffer::Context for Context<C> {
         handle
     }
 
-    fn get_mut(&mut self, handle: usize) -> Option<&mut Self::NativeBuffer> {
-        self.buffers.get_mut(handle)
+    fn get_mut(&mut self, handle: buffer::Buffer) -> Option<&mut Self::NativeBuffer> {
+        self.buffers.get_mut(handle.handle)
+    }
+
+    fn get(&self, handle: buffer::Buffer) -> Option<&Self::NativeBuffer> {
+        self.buffers.get(handle.handle)
     }
 }
 
-impl Drop for Buffer {
+impl Drop for GLBuffer {
     fn drop(&mut self) {
-        log::trace!("Dropped {} {}.", self.kind, self.id);
+        log::trace!("Dropped buffer {}.", self.id);
         unsafe { gl::DeleteBuffers(1, &self.id) }
     }
 }

@@ -5,6 +5,8 @@ pub enum Error {
     ///The Context doesn't fit the requirements
     InvalidContext(String),
     ResourceNotFound,
+    FailedToCompileShader(String),
+    FailedToLinkShader(String),
 }
 
 impl std::error::Error for Error {}
@@ -14,6 +16,12 @@ impl Display for Error {
         match self {
             Self::InvalidContext(error) => write!(f, "invalid context, caused by {error}"),
             Self::ResourceNotFound => write!(f, "resource not found"),
+            Error::FailedToLinkShader(error) => {
+                write!(f, "failed to link shader, caused by {error}")
+            }
+            Self::FailedToCompileShader(error) => {
+                write!(f, "failed to compile shader stage, caused by {error}")
+            }
         }
     }
 }

@@ -1,74 +1,65 @@
-use super::{
-    gl::{self, types::GLenum},
-    Context, GLContext,
+use super::gl::{self, types::GLenum};
+use crate::{
+    buffer::{self, FlatData},
+    error::Error,
 };
-use crate::{buffer, error::Error};
 
-pub struct Buffer {
+pub struct Native {
     pub(crate) id: gl::types::GLuint,
     kind: GLenum,
     usage: GLenum,
 }
 
-type GLBuffer = Buffer;
-
 struct AccessUsage(buffer::Access, buffer::Usage);
 
-impl buffer::NativeContext for GLBuffer {
+impl Native {
+    pub(super) fn new<T: FlatData>(buffer: &crate::Buffer<T>) -> Result<Self, Error> {
+        let mut b = Self {
+            id: unsafe {
+                let mut buffer = 0;
+                gl::GenBuffers(1, &mut buffer);
+                buffer
+            },
+            kind: buffer.kind.into(),
+            usage: AccessUsage(buffer.access, buffer.usage).into(),
+        };
+
+        if let Some(data) = buffer.data {
+            b.set_data(data)?;
+        }
+
+        Ok(b)
+    }
+
     fn set_data<T: buffer::FlatData>(&mut self, data: &[T]) -> Result<(), Error> {
+        let size = (data.len() * std::mem::size_of::<T>())
+            .try_into()
+            .map_err(|_| Error::ConversionFailed("buffer length into i32"))?;
+
         unsafe {
             gl::BindBuffer(self.kind, self.id);
-            gl::BufferData(
-                self.kind,
-                (data.len() * std::mem::size_of::<T>()).try_into().unwrap(),
-                data.as_ptr().cast(),
-                self.usage,
-            );
+            gl::BufferData(self.kind, size, data.as_ptr().cast(), self.usage);
         }
 
         Ok(())
     }
 }
 
-impl<C: GLContext> buffer::Context for Context<C> {
-    type NativeBuffer = GLBuffer;
-
-    fn create(
-        &mut self,
-        kind: buffer::Kind,
-        access: buffer::Access,
-        usage: buffer::Usage,
-    ) -> buffer::Buffer {
-        let buffer = Self::NativeBuffer {
-            id: unsafe {
-                let mut buffer = 0;
-                gl::GenBuffers(1, &mut buffer);
-                buffer
-            },
-            kind: kind.into(),
-            usage: AccessUsage(access, usage).into(),
-        };
-
-        let handle = buffer::Buffer {
-            handle: self.buffers.len(),
-        };
-        self.buffers.push(buffer);
-
-        handle
-    }
-
-    fn get_mut(&mut self, handle: buffer::Buffer) -> Option<&mut Self::NativeBuffer> {
-        self.buffers.get_mut(handle.handle)
-    }
-
-    fn get(&self, handle: buffer::Buffer) -> Option<&Self::NativeBuffer> {
-        self.buffers.get(handle.handle)
+impl crate::buffer::Native for Native {
+    fn set_data<T: buffer::FlatData>(&mut self, data: &[T]) -> Result<(), Error> {
+        self.set_data(data)
     }
 }
 
-impl Drop for GLBuffer {
+impl Drop for Native {
     fn drop(&mut self) {
-        log::trace!("Dropped buffer {}.", self.id);
+        log::trace!(
+            "Dropped {kind} buffer {id}.",
+            id = self.id,
+            kind = buffer::Kind::try_from(self.kind)
+                .map(|k| k.to_string())
+                .unwrap_or(String::from("unknown")),
+        );
         unsafe { gl::DeleteBuffers(1, &self.id) }
     }
 }
@@ -78,6 +69,16 @@ impl From<buffer::Kind> for GLenum {
     fn from(value: buffer::Kind) -> Self {
         match value {
             buffer::Kind::Vertex => gl::ARRAY_BUFFER,
+        }
+    }
+}
+
+impl TryFrom<GLenum> for buffer::Kind {
+    type Error = crate::Error;
+    fn try_from(value: GLenum) -> Result<Self, Self::Error> {
+        match value {
+            gl::ARRAY_BUFFER => Ok(Self::Vertex),
+            _ => Err(Error::ConversionFailed("glenum to bufferkind")),
         }
     }
 }

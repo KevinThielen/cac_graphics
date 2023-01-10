@@ -1,26 +1,22 @@
 use core::Color32;
 
-pub trait Context {
-    fn clear(&mut self, target: &RenderTarget);
-}
-
 #[derive(Copy, Clone)]
 pub struct RenderTarget {
     pub clear_color: Option<Color32>,
+    pub view_port: (u32, u32, u32, u32),
 }
 
 impl RenderTarget {
-    pub fn new() -> Self {
-        Self { clear_color: None }
-    }
-
-    pub fn with_clear_color(clear_color: Color32) -> Self {
+    #[must_use]
+    pub const fn with_clear_color(view_port: (u32, u32, u32, u32), clear_color: Color32) -> Self {
         Self {
             clear_color: Some(clear_color),
+            view_port,
         }
     }
+}
 
-    pub fn clear<C: Context>(&self, ctx: &mut C) {
-        ctx.clear(self);
-    }
+pub trait Native {
+    fn clear(&mut self);
+    fn set_clear_color(&mut self, color: Option<Color32>);
 }

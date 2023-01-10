@@ -1,7 +1,5 @@
 use std::fmt::Display;
 
-use crate::error::Error;
-
 #[derive(Copy, Clone)]
 pub enum Kind {
     Vertex,
@@ -9,54 +7,59 @@ pub enum Kind {
 }
 
 #[derive(Copy, Clone)]
-pub struct Stage {
-    pub(crate) handle: usize,
+pub struct Stage<'a> {
     pub kind: Kind,
+    pub sources: &'a [&'a str],
 }
 
-impl Stage {
-    pub fn new_vertex<C: Context>(ctx: &mut C, sources: &[&str]) -> Result<Self, Error> {
-        ctx.new_stage(Kind::Vertex, sources)
+impl<'a> Stage<'a> {
+    #[must_use]
+    pub const fn new_vertex(sources: &'a [&'a str]) -> Self {
+        Self {
+            kind: Kind::Vertex,
+            sources,
+        }
     }
-    pub fn new_fragment<C: Context>(ctx: &mut C, sources: &[&str]) -> Result<Self, Error> {
-        ctx.new_stage(Kind::Fragment, sources)
-    }
-}
-
-#[derive(PartialEq, Eq, Clone, Copy)]
-pub struct Shader {
-    pub(crate) handle: usize,
-}
-
-impl Shader {
-    pub fn with_sources<C: Context>(
-        ctx: &mut C,
-        vertex_shader: &str,
-        fragment_shader: &str,
-    ) -> Result<Self, Error> {
-        ctx.with_sources(&[vertex_shader], &[fragment_shader])
-    }
-
-    pub fn new<C: Context>(ctx: &mut C, stages: &[Stage]) -> Result<Shader, Error> {
-        ctx.new(stages)
+    #[must_use]
+    pub const fn new_fragment(sources: &'a [&'a str]) -> Self {
+        Self {
+            kind: Kind::Fragment,
+            sources,
+        }
     }
 }
 
-pub trait Context {
-    fn new(&mut self, stages: &[Stage]) -> Result<Shader, Error>;
-    fn with_sources(
-        &mut self,
-        vertex_shader: &[&str],
-        fragment_shader: &[&str],
-    ) -> Result<Shader, Error>;
-    fn new_stage(&mut self, kind: Kind, sources: &[&str]) -> Result<Stage, Error>;
+pub trait Native {}
+
+#[derive(Clone, Copy)]
+pub struct Shader<'a> {
+    pub stages: &'a [crate::StageHandle],
+    pub stage_sources: &'a [Stage<'a>],
+}
+
+impl<'a> Shader<'a> {
+    #[must_use]
+    pub const fn with_stages(stages: &'a [Stage<'a>]) -> Self {
+        Self {
+            stages: &[],
+            stage_sources: stages,
+        }
+    }
+
+    #[must_use]
+    pub const fn with_handles(handles: &'a [crate::StageHandle]) -> Self {
+        Self {
+            stages: handles,
+            stage_sources: &[],
+        }
+    }
 }
 
 impl Display for Kind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Kind::Vertex => write!(f, "vertex"),
-            Kind::Fragment => write!(f, "fragment"),
+            Self::Vertex => write!(f, "vertex"),
+            Self::Fragment => write!(f, "fragment"),
         }
     }
 }

@@ -1,16 +1,15 @@
 [package]
-name = "context"
+name = "cac-context"
 version = "0.1.0"
 edition = "2021"
+
 
 [dependencies]
 #logging abstraction
 log = "0.*"
-core = { path = "../core" }
+cac-core = { path = "../core" }
 
-[dev-dependencies]
-#error handling
-anyhow = "1.*"
+[target.'cfg(not(target_arch="wasm32"))'.dependencies]
 #logging implementation
 env_logger = "0.*"
 #window creation
@@ -19,3 +18,23 @@ winit = { version = "0.*", default-features = false, features =["x11"] }
 raw-gl-context = "0.*"
 #alternative window and context creation
 glfw = { version = "0.*", default-features = false }
+
+[target.'cfg(target_arch="wasm32")'.dev-dependencies]
+wasm-bindgen = "*"
+wasm-bindgen-test = "*"
+console_log = "*"
+web-sys = "*"
+console_error_panic_hook = "*"
+
+
+[dev-dependencies]
+#error handling
+anyhow = "1.*"
+cfg-if = "1.*"
+
+[[test]]
+name = "conformance_tests"
+path = "tests/conformance_tests/main.rs"
+harness = false
+
+

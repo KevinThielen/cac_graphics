@@ -1,5 +1,5 @@
 mod buffer;
-mod render_rarget;
+mod render_target;
 mod shader;
 mod stage;
 mod vertex_layout;
@@ -13,24 +13,125 @@ use crate::{
 
 use gl43_core as gl;
 
-use core::gen_vec::GenVec;
+use cac_core::{gen_vec::GenVec, math::URect};
+
+thread_local! {
+    static ERROR_LOGS: Vec<String> = Vec::new();
+}
 
 pub trait GLContext {
     fn swap_buffers(&mut self);
     fn get_proc_address(&mut self, name: &'static str) -> *const std::ffi::c_void;
 }
 
-pub struct Context<C: GLContext> {
-    gl_context: C,
+struct Resources {
     buffers: GenVec<handle::Buffer, buffer::Native>,
     layouts: GenVec<handle::VertexLayout, vertex_layout::Native>,
     stages: GenVec<handle::Stage, stage::Native>,
     shaders: GenVec<handle::Shader, shader::Native>,
-    render_targets: GenVec<handle::RenderTarget, render_rarget::Native>,
+    render_targets: GenVec<handle::RenderTarget, render_target::Native>,
+}
 
-    bound_layout: Option<VertexLayoutHandle>,
-    bound_shader: Option<ShaderHandle>,
-    bound_render_target: Option<RenderTargetHandle>,
+impl Resources {
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            buffers: GenVec::with_capacity(capacity),
+            layouts: GenVec::with_capacity(capacity),
+            stages: GenVec::with_capacity(capacity),
+            shaders: GenVec::with_capacity(capacity),
+            render_targets: GenVec::with_capacity(capacity),
+        }
+    }
+
+    pub fn clear(&mut self) {
+        *self = Self::with_capacity(10);
+    }
+}
+
+#[derive(Default)]
+struct State {
+    pub bound_layout: Option<VertexLayoutHandle>,
+    pub bound_shader: Option<ShaderHandle>,
+    pub bound_render_target: Option<RenderTargetHandle>,
+}
+
+impl State {
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
+    pub fn bind_render_target(
+        &mut self,
+        resources: &mut Resources,
+        render_rarget: RenderTargetHandle,
+    ) -> Result<(), Error> {
+        if self.bound_render_target != Some(render_rarget) {
+            self.bound_render_target = Some(render_rarget);
+            if let Some(rt) = resources.render_targets.get_mut(render_rarget) {
+                rt.bind()?;
+            } else {
+                return Err(Error::ResourceNotFound);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn bind_shader(
+        &mut self,
+        resources: &mut Resources,
+        shader: ShaderHandle,
+    ) -> Result<(), Error> {
+        if self.bound_shader != Some(shader) {
+            self.bound_shader = Some(shader);
+            if let Some(s) = resources.shaders.get_mut(shader) {
+                s.bind();
+            } else {
+                return Err(Error::ResourceNotFound);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn bind_layout(
+        &mut self,
+        resources: &mut Resources,
+        layout: VertexLayoutHandle,
+    ) -> Result<(), Error> {
+        if self.bound_layout != Some(layout) {
+            self.bound_layout = Some(layout);
+            if let Some(l) = resources.layouts.get_mut(layout) {
+                l.bind();
+            } else {
+                return Err(Error::ResourceNotFound);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn bind_draw_state(
+        &mut self,
+        resources: &mut Resources,
+        render_rarget: RenderTargetHandle,
+        layout: VertexLayoutHandle,
+        shader: ShaderHandle,
+    ) -> Result<(), Error> {
+        self.bind_render_target(resources, render_rarget)?;
+        self.bind_layout(resources, layout)?;
+        self.bind_shader(resources, shader)?;
+        Ok(())
+    }
+}
+
+pub struct Context<C: GLContext> {
+    gl_context: C,
+    resources: Resources,
+    state: State,
+
+    //Boxing the collection is fine in this case, because it provides a stable adress to the
+    //collection, that can be send over FFI.
+    #[allow(clippy::box_collection)]
+    error_log: Box<Vec<String>>,
+
+    viewport: URect,
 }
 
 impl<C: GLContext> Context<C> {
@@ -61,62 +162,57 @@ impl<C: GLContext> Context<C> {
             )));
         }
 
+        let viewport = unsafe {
+            let mut data = [0; 4];
+            gl::GetIntegerv(gl::VIEWPORT, data.as_mut_ptr());
+
+            let x = data[0]
+                .try_into()
+                .map_err(|_| Error::ConversionFailed("viewport x to u32"))?;
+
+            let y = data[1]
+                .try_into()
+                .map_err(|_| Error::ConversionFailed("viewport y to u32"))?;
+
+            let width = data[2]
+                .try_into()
+                .map_err(|_| Error::ConversionFailed("viewport width to u32"))?;
+
+            let height = data[3]
+                .try_into()
+                .map_err(|_| Error::ConversionFailed("viewport height to u32"))?;
+
+            URect {
+                x,
+                y,
+                width,
+                height,
+            }
+        };
+
+        let mut ctx = Self {
+            gl_context: context,
+            error_log: Box::default(),
+            viewport,
+            resources: Resources::with_capacity(10),
+            state: State::default(),
+        };
+
         unsafe {
             gl::Enable(gl::DEBUG_OUTPUT);
-            gl::DebugMessageCallback(Some(debug_callback), std::ptr::null());
+            gl::DebugMessageCallback(
+                Some(debug_callback),
+                std::ptr::addr_of_mut!(*ctx.error_log).cast(),
+            );
+
+            gl::Enable(gl::SCISSOR_TEST);
         }
 
-        Ok(Self {
-            gl_context: context,
-            buffers: GenVec::with_capacity(10),
-            layouts: GenVec::with_capacity(10),
-            stages: GenVec::with_capacity(10),
-            shaders: GenVec::with_capacity(10),
-            render_targets: GenVec::with_capacity(10),
-            bound_layout: None,
-            bound_shader: None,
-            bound_render_target: None,
-        })
+        Ok(ctx)
     }
 
     pub fn raw_context(&mut self) -> &mut C {
         &mut self.gl_context
-    }
-
-    fn bind_render_target(&mut self, render_rarget: RenderTargetHandle) -> Result<(), Error> {
-        if self.bound_render_target != Some(render_rarget) {
-            self.bound_render_target = Some(render_rarget);
-            if let Some(rt) = self.render_targets.get_mut(render_rarget) {
-                rt.bind()?;
-            } else {
-                return Err(Error::ResourceNotFound);
-            }
-        }
-        Ok(())
-    }
-
-    fn bind_shader(&mut self, shader: ShaderHandle) -> Result<(), Error> {
-        if self.bound_shader != Some(shader) {
-            self.bound_shader = Some(shader);
-            if let Some(s) = self.shaders.get_mut(shader) {
-                s.bind();
-            } else {
-                return Err(Error::ResourceNotFound);
-            }
-        }
-        Ok(())
-    }
-
-    fn bind_layout(&mut self, layout: VertexLayoutHandle) -> Result<(), Error> {
-        if self.bound_layout != Some(layout) {
-            self.bound_layout = Some(layout);
-            if let Some(l) = self.layouts.get_mut(layout) {
-                l.bind();
-            } else {
-                return Err(Error::ResourceNotFound);
-            }
-        }
-        Ok(())
     }
 }
 
@@ -125,10 +221,29 @@ impl<C: GLContext> crate::Context for Context<C> {
     type Layout = vertex_layout::Native;
     type Shader = shader::Native;
     type Stage = stage::Native;
-    type RenderTarget = render_rarget::Native;
+    type RenderTarget = render_target::Native;
 
     fn update(&mut self) {
         self.gl_context.swap_buffers();
+    }
+
+    fn poll_errors(&mut self) -> Option<Vec<String>> {
+        if self.error_log.is_empty() {
+            None
+        } else {
+            let log = self.error_log.to_vec();
+            self.error_log.clear();
+            Some(log)
+        }
+    }
+    fn reset(&mut self) {
+        self.resources.clear();
+        self.state.reset();
+        self.error_log.clear();
+    }
+
+    fn viewport(&self) -> URect {
+        self.viewport
     }
 
     fn draw(
@@ -140,9 +255,8 @@ impl<C: GLContext> crate::Context for Context<C> {
         start: usize,
         count: usize,
     ) -> std::result::Result<(), Error> {
-        self.bind_render_target(render_rarget)?;
-        self.bind_shader(shader)?;
-        self.bind_layout(layout)?;
+        self.state
+            .bind_draw_state(&mut self.resources, render_rarget, layout, shader)?;
 
         let start = start
             .try_into()
@@ -167,19 +281,23 @@ impl<C: GLContext> crate::Context for Context<C> {
         render_target: crate::RenderTarget,
     ) -> Result<crate::RenderTargetHandle, Error> {
         let rt = Self::RenderTarget::new(render_target);
-        Ok(self.render_targets.insert(rt))
+        Ok(self.resources.render_targets.insert(rt))
     }
 
     fn render_target(&self, handle: crate::RenderTargetHandle) -> Option<&Self::RenderTarget> {
-        self.render_targets.get(handle)
+        self.resources.render_targets.get(handle)
     }
 
     fn render_target_mut(
         &mut self,
         handle: crate::RenderTargetHandle,
     ) -> Option<&mut Self::RenderTarget> {
-        if self.bind_render_target(handle).is_ok() {
-            self.render_targets.get_mut(handle)
+        if self
+            .state
+            .bind_render_target(&mut self.resources, handle)
+            .is_ok()
+        {
+            self.resources.render_targets.get_mut(handle)
         } else {
             None
         }
@@ -193,35 +311,35 @@ impl<C: GLContext> crate::Context for Context<C> {
         buffer: &crate::Buffer<T>,
     ) -> Result<BufferHandle, Error> {
         let buffer = Self::Buffer::new(buffer)?;
-        Ok(self.buffers.insert(buffer))
+        Ok(self.resources.buffers.insert(buffer))
     }
 
     fn buffer(&self, handle: BufferHandle) -> Option<&Self::Buffer> {
-        self.buffers.get(handle)
+        self.resources.buffers.get(handle)
     }
 
     fn buffer_mut(&mut self, handle: BufferHandle) -> Option<&mut Self::Buffer> {
-        self.buffers.get_mut(handle)
+        self.resources.buffers.get_mut(handle)
     }
 
     /*******************************
      *          VertexLayout
      *******************************/
     fn create_layout(&mut self, layout: &crate::VertexLayout) -> Result<VertexLayoutHandle, Error> {
-        let layout = vertex_layout::Native::new(layout, &self.buffers)?;
-        let handle = self.layouts.insert(layout);
+        let layout = vertex_layout::Native::new(layout, &self.resources.buffers)?;
+        let handle = self.resources.layouts.insert(layout);
 
-        self.bind_layout(handle)?;
+        self.state.bind_layout(&mut self.resources, handle)?;
 
         Ok(handle)
     }
     fn layout(&self, handle: VertexLayoutHandle) -> Option<&Self::Layout> {
-        self.layouts.get(handle)
+        self.resources.layouts.get(handle)
     }
 
     fn layout_mut(&mut self, handle: VertexLayoutHandle) -> Option<&mut Self::Layout> {
-        if self.bind_layout(handle).is_ok() {
-            self.layouts.get_mut(handle)
+        if self.state.bind_layout(&mut self.resources, handle).is_ok() {
+            self.resources.layouts.get_mut(handle)
         } else {
             None
         }
@@ -232,15 +350,15 @@ impl<C: GLContext> crate::Context for Context<C> {
         handle: VertexLayoutHandle,
         buffer_handles: &[BufferHandle],
     ) -> (Option<&mut Self::Layout>, Vec<Option<&Self::Buffer>>) {
-        let layout = if self.bind_layout(handle).is_ok() {
-            self.layouts.get_mut(handle)
+        let layout = if self.state.bind_layout(&mut self.resources, handle).is_ok() {
+            self.resources.layouts.get_mut(handle)
         } else {
             None
         };
 
         let buffers = buffer_handles
             .iter()
-            .map(|b| self.buffers.get(*b))
+            .map(|b| self.resources.buffers.get(*b))
             .collect();
 
         (layout, buffers)
@@ -252,26 +370,26 @@ impl<C: GLContext> crate::Context for Context<C> {
 
     fn create_stage(&mut self, shader: crate::shader::Stage) -> Result<StageHandle, Error> {
         let stage = Self::Stage::new(shader)?;
-        Ok(self.stages.insert(stage))
+        Ok(self.resources.stages.insert(stage))
     }
 
     fn stage(&self, handle: StageHandle) -> Option<&Self::Stage> {
-        self.stages.get(handle)
+        self.resources.stages.get(handle)
     }
 
     fn create_shader(&mut self, shader: crate::shader::Shader) -> Result<ShaderHandle, Error> {
-        let shader = Self::Shader::new(shader, &self.stages)?;
+        let shader = Self::Shader::new(shader, &self.resources.stages)?;
 
-        Ok(self.shaders.insert(shader))
+        Ok(self.resources.shaders.insert(shader))
     }
 
     fn shader(&self, handle: ShaderHandle) -> Option<&Self::Shader> {
-        self.shaders.get(handle)
+        self.resources.shaders.get(handle)
     }
 
     fn shader_mut(&mut self, handle: ShaderHandle) -> Option<&mut Self::Shader> {
-        if self.bind_shader(handle).is_ok() {
-            self.shaders.get_mut(handle)
+        if self.state.bind_shader(&mut self.resources, handle).is_ok() {
+            self.resources.shaders.get_mut(handle)
         } else {
             None
         }
@@ -296,7 +414,7 @@ extern "system" fn debug_callback(
     severity: u32,
     _length: i32,
     message: *const i8,
-    _user_param: *mut std::ffi::c_void,
+    user_param: *mut std::ffi::c_void,
 ) {
     let source = match source {
         gl::DEBUG_SOURCE_API => "API",
@@ -308,7 +426,7 @@ extern "system" fn debug_callback(
         _ => "UNKNOWN",
     };
 
-    let kind = match kind {
+    let kind_str = match kind {
         gl::DEBUG_TYPE_ERROR => "ERROR",
         gl::DEBUG_TYPE_DEPRECATED_BEHAVIOR => "DEPRECATED",
         gl::DEBUG_TYPE_UNDEFINED_BEHAVIOR => "UNDEFINED BEHAVIOUR",
@@ -323,13 +441,34 @@ extern "system" fn debug_callback(
             .unwrap_or("[FAILED TO READ GL ERROR MESSAGE]")
     };
 
+    let error_message = format!("{id}: {kind_str} from {source}: {error_message}");
+
     match severity {
-        gl::DEBUG_SEVERITY_HIGH => log::error!("{id}: {kind} from {source}: {error_message}"),
-        gl::DEBUG_SEVERITY_MEDIUM => log::warn!("{id}: {kind} from {source}: {error_message}"),
-        gl::DEBUG_SEVERITY_LOW => log::info!("{id}: {kind} from {source}: {error_message}"),
+        gl::DEBUG_SEVERITY_HIGH => log::error!("{error_message}"),
+        gl::DEBUG_SEVERITY_MEDIUM => log::warn!("{error_message}"),
+        gl::DEBUG_SEVERITY_LOW => log::info!("{error_message}"),
         gl::DEBUG_SEVERITY_NOTIFICATION => {
-            log::trace!("{id}: {kind} from {source}: {error_message}");
+            log::trace!("{error_message}");
         }
-        _ => log::trace!("{id}: {kind} from {source}: {error_message}"),
+        _ => log::trace!("{error_message}"),
     };
+
+    if !user_param.is_null() {
+        let vec_ptr: *mut Vec<String> = user_param.cast();
+
+        unsafe {
+            if let Some(v) = vec_ptr.as_mut() {
+                if v.len() >= 20 {
+                    log::warn!("graphics context error log filled, discarding new logs");
+                } else if let gl::DEBUG_TYPE_ERROR
+                | gl::DEBUG_TYPE_UNDEFINED_BEHAVIOR
+                | gl::DEBUG_TYPE_DEPRECATED_BEHAVIOR
+                | gl::DEBUG_TYPE_PORTABILITY
+                | gl::DEBUG_TYPE_PERFORMANCE = kind
+                {
+                    v.push(error_message);
+                }
+            }
+        }
+    }
 }

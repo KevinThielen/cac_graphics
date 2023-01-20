@@ -12,7 +12,7 @@
 //! # Examples
 //!
 //! ```
-//!    use core::gen_vec;
+//!    use cac_core::gen_vec;
 //!    // The `Key` argument could be any type. It is recommended to create every
 //!    // storage with a unique Key, so that handles can only be used with that specific storage.
 //!    // This prevents accidents, like removing a value from the wrong collection.
@@ -89,7 +89,7 @@ impl<K, V> GenVec<K, V> {
     ///
     /// # Examples
     /// ```
-    /// use core::gen_vec;
+    /// use cac_core::gen_vec;
     ///
     /// //creates a `GenVec` storing Strings  
     /// let storage = gen_vec::GenVec::<u32, String>::new();
@@ -109,7 +109,7 @@ impl<K, V> GenVec<K, V> {
     ///
     /// # Examples
     /// ```
-    /// use core::gen_vec;
+    /// use cac_core::gen_vec;
     ///
     /// //creates a `GenVec` storing Strings with a default capacity of 10
     /// let storage = gen_vec::GenVec::<String, String>::with_capacity(10);
@@ -128,7 +128,7 @@ impl<K, V> GenVec<K, V> {
     /// In addition to the `GenVec`, this function will also return the created handles
     /// to the passed values in the same order as they were passed.
     /// ```
-    /// use core::gen_vec;
+    /// use cac_core::gen_vec;
     ///
     /// struct Key;
     ///
@@ -158,7 +158,7 @@ impl<K, V> GenVec<K, V> {
     ///
     /// If the `Handle` has no valid associated value, the returned value is `None`.
     /// ```
-    /// use core::gen_vec;
+    /// use cac_core::gen_vec;
     ///
     /// struct Key;
     /// let mut storage = gen_vec::GenVec::<Key, _>::new();
@@ -181,7 +181,7 @@ impl<K, V> GenVec<K, V> {
     ///
     /// If the `Handle` has no valid associated value associated, the returned value is `None`.
     /// ```
-    /// use core::gen_vec;
+    /// use cac_core::gen_vec;
     ///
     /// struct Key;
     /// let mut storage = gen_vec::GenVec::<Key, _>::new();
@@ -203,7 +203,7 @@ impl<K, V> GenVec<K, V> {
 
     /// Inserts a new value into the collection and returns a `Handle` to it.
     /// ```
-    /// use core::gen_vec;
+    /// use cac_core::gen_vec;
     ///
     /// struct Key;
     /// let mut storage = gen_vec::GenVec::<Key, _>::new();
@@ -251,7 +251,7 @@ impl<K, V> GenVec<K, V> {
     /// All handles to the removed value will be invalidated.
     /// Returns the removed Value, or `None` if the valid is invalid.
     /// ```
-    /// use core::gen_vec;
+    /// use cac_core::gen_vec;
     ///
     /// struct Key;
     /// let mut storage = gen_vec::GenVec::<Key, _>::new();
@@ -288,7 +288,7 @@ pub mod test {
 
     //create a test storage with N elements
     fn test_storage<const N: usize>() -> ([Handle<u32>; N], GenVec<u32, String>) {
-        let values: Vec<_> = (0..N).into_iter().map(|i| format!("Value{i}")).collect();
+        let values: Vec<_> = (0..N).map(|i| format!("Value{i}")).collect();
 
         GenVec::with_values(values.try_into().unwrap())
     }

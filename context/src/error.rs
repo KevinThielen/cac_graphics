@@ -8,6 +8,7 @@ pub enum Error {
     FailedToCompileShader(String),
     FailedToLinkShader(String),
     ConversionFailed(&'static str),
+    ExternalError(String),
 }
 
 impl std::error::Error for Error {}
@@ -24,6 +25,7 @@ impl Display for Error {
                 write!(f, "failed to compile shader stage, caused by {error}")
             }
             Self::ConversionFailed(error) => write!(f, "conversion failed, caused by {error}"),
+            Self::ExternalError(error) => write!(f, "external error, caused by {error}"),
         }
     }
 }

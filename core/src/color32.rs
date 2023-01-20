@@ -41,12 +41,40 @@ impl Color32 {
     }
 
     #[must_use]
-    pub const fn as_rgb(&self) -> (f32, f32, f32) {
-        (self.r, self.g, self.b)
+    pub const fn as_rgb(&self) -> [f32; 3] {
+        [self.r, self.g, self.b]
     }
 
     #[must_use]
-    pub const fn as_rgba(&self) -> (f32, f32, f32, f32) {
-        (self.r, self.g, self.b, self.a)
+    pub const fn as_rgba(&self) -> [f32; 4] {
+        [self.r, self.g, self.b, self.a]
+    }
+
+    #[must_use]
+    pub fn as_srgb(&self) -> [f32; 3] {
+        [self.r.to_gamma(), self.g.to_gamma(), self.b.to_gamma()]
+    }
+
+    #[must_use]
+    pub fn as_srgba(&self) -> [f32; 4] {
+        let [r, g, b] = self.as_srgb();
+        [r, g, b, self.a.to_gamma()]
+    }
+}
+
+trait ToGamma {
+    type Output;
+    fn to_gamma(self) -> Self;
+}
+
+impl ToGamma for f32 {
+    type Output = Self;
+
+    fn to_gamma(self) -> Self {
+        if self < 0.003_130_8 {
+            self * 12.92
+        } else {
+            1.055f32.mul_add(self.powf(1.0 / 2.4), -0.055)
+        }
     }
 }

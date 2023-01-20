@@ -1,4 +1,4 @@
-use core::gen_vec::GenVec;
+use cac_core::gen_vec::GenVec;
 
 use crate::{error::Error, shader::Shader};
 

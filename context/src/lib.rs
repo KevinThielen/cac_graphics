@@ -1,5 +1,6 @@
 #![warn(clippy::pedantic)]
 #![warn(clippy::nursery)]
+#![warn(clippy::perf)]
 
 pub mod error;
 pub mod opengl;
@@ -9,7 +10,7 @@ pub mod render_target;
 pub mod shader;
 pub mod vertex_layout;
 
-use core::gen_vec::Handle;
+use cac_core::{gen_vec::Handle, math::URect};
 
 pub use buffer::Buffer;
 pub use render_target::RenderTarget;
@@ -38,7 +39,11 @@ pub trait Context {
     type Stage;
     type RenderTarget: render_target::Native;
 
+    fn reset(&mut self);
     fn update(&mut self);
+
+    fn poll_errors(&mut self) -> Option<Vec<String>>;
+    fn viewport(&self) -> URect;
 
     /// Invokes a drawcall, binding the shader, layout and rendetarget
     ///

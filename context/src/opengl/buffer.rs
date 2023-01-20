@@ -57,8 +57,7 @@ impl Drop for Native {
             "Dropped {kind} buffer {id}.",
             id = self.id,
             kind = buffer::Kind::try_from(self.kind)
-                .map(|k| k.to_string())
-                .unwrap_or(String::from("unknown")),
+                .map_or_else(|_| String::from("unknown"), |k| k.to_string()),
         );
         unsafe { gl::DeleteBuffers(1, &self.id) }
     }

@@ -1,4 +1,4 @@
-use core::gen_vec::GenVec;
+use cac_core::gen_vec::GenVec;
 
 use crate::{
     error::Error,
@@ -61,11 +61,11 @@ impl Native {
                     let local_offset = attr
                         .local_offset
                         .try_into()
-                        .map_err(|_| Error::ConversionFailed("local attribute offset wraps"))?;
+                        .map_err(|_| Error::ConversionFailed("local attribute offset to GLuint"))?;
 
                     let index = index
                         .try_into()
-                        .map_err(|_| Error::ConversionFailed("attribute index wraps"))?;
+                        .map_err(|_| Error::ConversionFailed("attribute index to GLuint"))?;
 
                     unsafe {
                         gl::EnableVertexAttribArray(attr.location.into());
